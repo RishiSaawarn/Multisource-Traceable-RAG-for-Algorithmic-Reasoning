@@ -2,8 +2,9 @@
 
 A Retrieval-Augmented Generation (RAG) system for querying algorithm implementations across multiple programming languages. Ask natural-language questions and get answers grounded in real, curated source code — with full transparency into every pipeline step.
 <p align="center">
-  <img src="images/1.png" alt="Default Page">
+  <img src="images/Screenshot 2026-09-06 205441.png" alt="Default Page">
 </p>
+
 
 
 ---
@@ -39,7 +40,7 @@ A Retrieval-Augmented Generation (RAG) system for querying algorithm implementat
 
 `Traceable Fusion RAG for Algorithms` lets you ask questions like *"How does Dijkstra's algorithm work?"* or *"What is a segment tree and when should I use it?"* and get back structured answers with code snippets, source file citations, and a confidence score — all sourced from real algorithm repositories on GitHub, not from the LLM's parametric memory.
 
-The system ingests 6 open-source algorithm repositories (~1 GB of C++, Python, Java, and Markdown), stores them in a ChromaDB vector store, and at query time runs a hybrid BM25 + dense retrieval pipeline, reranks with Cohere, and generates answers with Groq (Llama 3.3 70B) with a Cohere Command A+ fallback.
+The system ingests 6 open-source algorithm repositories (~1 GB of C++, Python, Java, and Markdown), stores them in a FAISS vector store, and at query time runs a hybrid BM25 + dense retrieval pipeline, reranks with Cohere, and generates answers with Groq (Llama 3.3 70B) with a Cohere Command A+ fallback.
 
 <img src="images/2.png" alt="query"><img src="images/3.png" alt="query"><img src="images/4.png" alt="query"><img src="images/5.png" alt="query"><img src="images/6.png" alt="query">
 ---
@@ -58,7 +59,7 @@ User Query
           ┌─────────────┴──────────────┐
           ▼                            ▼
   Dense Retrieval               BM25 Retrieval
-  (ChromaDB + Cohere            (rank-bm25, keyword
+  (FAISS + Cohere               (rank-bm25, keyword
    embeddings)                   exact match)
           │                            │
           └─────────────┬──────────────┘
@@ -126,7 +127,7 @@ The `Settings` class holds all tuneable parameters: LLM model names, retrieval `
 
 `add_context_header()` prepends a metadata header like `File: graph/dijkstra.cpp | Language: cpp | Category: graph | Algorithm: Dijkstra` to each chunk's text before indexing, so the LLM always knows where retrieved code comes from.
 
-**`indexer.py`** — `AlgoIndexer` takes chunks, embeds them in batches of 24 via the Cohere `embed-english-v3.0` model, and writes them to ChromaDB. Key design decisions:
+**`indexer.py`** — `AlgoIndexer` takes chunks, embeds them in batches of 24 via the Cohere `embed-english-v3.0` model, and writes them to a FAISS index. Key design decisions:
 
 - **Idempotent**: each chunk gets a deterministic SHA-based ID from its content + source path. Re-running the indexer skips already-stored chunks — no duplicates, safe to run repeatedly.
 - **Rate limiting**: respects Cohere's free-tier (100 req/min) with `time.sleep` between batches.
@@ -140,7 +141,7 @@ The `Settings` class holds all tuneable parameters: LLM model names, retrieval `
 
 It combines two complementary search methods:
 
-- **Dense search**: queries ChromaDB using Cohere embeddings. Captures *semantic* similarity — "fast sorting" finds "quicksort". ChromaDB returns L2 distances, which are converted to `[0, 1]` similarities.
+- **Dense search**: queries FAISS using Cohere embeddings. Captures *semantic* similarity — "fast sorting" finds "quicksort". FAISS returns L2 distances, which are converted to `[0, 1]` similarities.
 - **BM25 search**: a probabilistic keyword ranker (the algorithm behind Elasticsearch). Captures *exact terms* — "BFS" reliably finds "BFS", not "DFS". The BM25 index is built over all chunk tokens at startup.
 
 Results from both are merged via **Reciprocal Rank Fusion (RRF)**:
@@ -238,8 +239,8 @@ The `data/` directory (~1 GB, not committed) has this structure:
 
 ```
 data/
-├── chroma_db/          # Active ChromaDB vector store
-├── chroma_db_backup/   # Backup snapshot
+├── faiss_db/           # Active FAISS vector store
+├── faiss_db_backup/    # Backup snapshot
 └── raw/                # Cloned source repositories
     ├── C-Plus-Plus/             TheAlgorithms/C-Plus-Plus   ~370 C++ files
     ├── Python/                  TheAlgorithms/Python        ~900 Python files
@@ -296,7 +297,6 @@ Traceable Fusion RAG for Algorithms/
 │   └── ragas_results.json
 ├── scripts/
 │   ├── verify_setup.py
-│   ├── backup_chroma.py
 │   └── generate_test_structure.py
 ├── data/                   ← NOT committed (~1 GB)
 ├── .env.example
@@ -358,9 +358,9 @@ This single command runs the complete pipeline:
 1. **Clones** all 6 algorithm repos into `data/raw/`
 2. **Chunks** each file with language-aware splitting
 3. **Embeds** every chunk via Cohere `embed-english-v3.0`
-4. **Stores** embeddings in `data/chroma_db/` (ChromaDB)
+4. **Stores** embeddings in `data/faiss_db/` (FAISS)
 
-Alternatively, the app auto-runs ingestion on first launch if `data/chroma_db/` is missing.
+Alternatively, the app auto-runs ingestion on first launch if `data/faiss_db/` is missing.
 
 ---
 
@@ -484,7 +484,7 @@ tests/e2e/test_full_system.py::test_pipeline_uses_fallback_on_groq_failure      
 - Skips empty strings and long sentences (not file paths)
 - `score_retrieval` returns 0.0 on empty input, stays ≤ 1.0 with perfect scores, and weights the top chunk at 1.0 vs 0.5 for the second
 
-**`test_indexer.py`** — Verifies `AlgoIndexer` with mocked Cohere + ChromaDB:
+**`test_indexer.py`** — Verifies `AlgoIndexer` with mocked Cohere + FAISS:
 - `_generate_chunk_id` is deterministic (same doc → same ID every time)
 - IDs differ for different content (no collisions)
 - `index_chunks` returns the correct count of newly written chunks
@@ -497,7 +497,7 @@ tests/e2e/test_full_system.py::test_pipeline_uses_fallback_on_groq_failure      
 - RRF merges two ranked lists and preserves all unique documents
 - RRF scores are always positive
 - BM25 search returns `(Document, float)` pairs
-- Dense search converts ChromaDB L2 distances to `[0, 1]` similarities
+- Dense search converts FAISS L2 distances to `[0, 1]` similarities
 - Language-match metadata boost increases scores; mismatch decreases them
 - `retrieve()` returns `RetrievedChunk` objects
 
@@ -505,7 +505,7 @@ tests/e2e/test_full_system.py::test_pipeline_uses_fallback_on_groq_failure      
 
 ### Integration Tests
 
-**`test_ingestion_pipeline.py`** — Tests the full `chunk → add_context_header → index` chain end-to-end (mocked embeddings and ChromaDB):
+**`test_ingestion_pipeline.py`** — Tests the full `chunk → add_context_header → index` chain end-to-end (mocked embeddings and FAISS):
 - Chunking produces ≥ as many chunks as source documents
 - Context headers survive the full pipeline with `File:`, `Language:`, and `Category:` fields intact
 - Re-indexing the same chunks returns count 0 (no duplicates written)
@@ -592,7 +592,7 @@ All settings live in `src/config.py` and are loaded from `.env` via Pydantic `Ba
 
 | Setting | Default | Description |
 |---|---|---|
-| `primary_llm` | `llama-3.3-70b-versatile` | Primary LLM (Groq) |
+| `primary_llm` | `openai/gpt-oss-120b` | Primary LLM (Groq) |
 | `fallback_llm` | `command-a-03-2025` | Fallback LLM (Cohere) |
 | `llm_temperature` | `0.0` | Deterministic generation |
 | `max_tokens` | `2048` | Max generation length |
@@ -614,7 +614,6 @@ All settings live in `src/config.py` and are loaded from `.env` via Pydantic `Ba
 | Script | Purpose |
 |---|---|
 | `scripts/verify_setup.py` | Confirms API keys and core packages are configured correctly |
-| `scripts/backup_chroma.py` | Copies `data/chroma_db/` to `data/chroma_db_backup/` |
 | `scripts/generate_test_structure.py` | Scaffolds test file structure |
 
 ---
