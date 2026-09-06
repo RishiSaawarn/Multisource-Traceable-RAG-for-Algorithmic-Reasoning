@@ -1,17 +1,32 @@
 # .github/workflows/test.yml
 name: AlgoRAG Tests
 
-on: [push, pull_request]
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -20,9 +35,25 @@ jobs:
         # Makes `src` importable as a package — fixes ModuleNotFoundError
         run: pip install -e .
 
-      - name: Run unit and integration tests
-        run: pytest tests/unit/ tests/integration/ -v --cov=src
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
         env:
           PYTHONPATH: ${{ github.workspace }}
           GROQ_API_KEY: "fake-groq-key-for-testing"
-          COHERE_API_KEY: "fake-cohere-key-for-testing" 
+          COHERE_API_KEY: "fake-cohere-key-for-testing"
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v --tb=short --cov=src --cov-report=term-missing
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          GROQ_API_KEY: "fake-groq-key-for-testing"
+          COHERE_API_KEY: "fake-cohere-key-for-testing"
+
+      # E2E tests only run when real keys are present (set as repo secrets)
+      - name: Run e2e tests (skipped without real API keys)
+        if: ${{ secrets.GROQ_API_KEY != '' }}
+        run: pytest tests/e2e/ -v --tb=short
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}

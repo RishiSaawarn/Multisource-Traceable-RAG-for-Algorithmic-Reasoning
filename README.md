@@ -347,9 +347,20 @@ python scripts/verify_setup.py
 ```
 
 **6. Ingest the knowledge base** *(skip if you have a pre-built `data/` directory)*
+
+> ⚠️ This clones ~1 GB of GitHub repos and embeds them via Cohere. Expect **30–90 minutes** on the first run. It is fully idempotent — safe to interrupt and re-run.
+
 ```bash
-# TODO: add ingestion entry-point command here
+python -m src.ingestion.indexer
 ```
+
+This single command runs the complete pipeline:
+1. **Clones** all 6 algorithm repos into `data/raw/`
+2. **Chunks** each file with language-aware splitting
+3. **Embeds** every chunk via Cohere `embed-english-v3.0`
+4. **Stores** embeddings in `data/chroma_db/` (ChromaDB)
+
+Alternatively, the app auto-runs ingestion on first launch if `data/chroma_db/` is missing.
 
 ---
 
@@ -610,4 +621,4 @@ All settings live in `src/config.py` and are loaded from `.env` via Pydantic `Ba
 
 ## License
 
-<!-- TODO: Add license. -->
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
