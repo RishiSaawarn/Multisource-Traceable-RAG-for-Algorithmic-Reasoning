@@ -74,7 +74,7 @@ class HyDEChain:
     def __init__(self, groq_api_key: str, cohere_api_key: str = "", **kwargs):
         self.groq = ChatGroq(
             api_key=groq_api_key,
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             temperature=0.3,
             max_tokens=300,
             request_timeout=12,

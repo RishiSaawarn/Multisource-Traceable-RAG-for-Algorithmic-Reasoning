@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     langchain_project: str = "Traceable Fusion RAG for Algorithms"
 
     # LLM Config
-    primary_llm: str = "llama-3.3-70b-versatile"   # Groq
+    primary_llm: str = "openai/gpt-oss-120b"   # Groq
     fallback_llm: str = "command-a-03-2025"          # Cohere Command A+
     llm_temperature: float = 0.0
     max_tokens: int = 2048
