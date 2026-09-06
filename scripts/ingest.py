@@ -50,10 +50,10 @@ def main():
 
     if args.force:
         import shutil
-        chroma_path = Path(settings.chroma_db_path)
-        if chroma_path.exists():
-            print(f"⚠️  --force: deleting existing index at {chroma_path}")
-            shutil.rmtree(chroma_path)
+        faiss_path = Path(settings.faiss_db_path)
+        if faiss_path.exists():
+            print(f"⚠️  --force: deleting existing index at {faiss_path}")
+            shutil.rmtree(faiss_path)
 
     try:
         indexer = run_full_indexing_pipeline(settings)

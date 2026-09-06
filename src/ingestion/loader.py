@@ -292,9 +292,10 @@ def load_repository(repo_path: str, language: str) -> list:
         and not any(skip in f.parts for skip in _SKIP_DIRS)
     ]
 
-    logger.info(f"[{language}] Found {len(source_files)} files in {repo_path}")
-
-    for file_path in tqdm(source_files, desc=f"Loading {language} files"):
+    logger.info(f"Loading {language} files from {repo_path}")
+    print(f"Loading {len(source_files)} {language} files...")
+    
+    for i, file_path in enumerate(source_files):
         try:
             content = file_path.read_text(encoding="utf-8", errors="ignore")
             if len(content.strip()) < min_size:

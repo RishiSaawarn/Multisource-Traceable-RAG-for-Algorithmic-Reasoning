@@ -92,8 +92,8 @@ class AlgoRAGApp:
         console.print("\n[bold]🔧 Initializing AlgoRAG...[/bold]")
         
         # Step 1: Check if index exists
-        chroma_path = Path(settings.chroma_db_path)
-        index_exists = chroma_path.exists() and any(chroma_path.iterdir())
+        faiss_path = Path(settings.faiss_db_path)
+        index_exists = faiss_path.exists() and any(faiss_path.iterdir())
         
         if not index_exists:
             console.print("[yellow]📥 No index found. Running first-time setup...[/yellow]")
@@ -116,7 +116,7 @@ class AlgoRAGApp:
         # Step 3: Initialize components
         indexer = AlgoIndexer(
             cohere_api_key=settings.cohere_api_key,
-            chroma_path=settings.chroma_db_path
+            chroma_path=settings.faiss_db_path
         )
         
         self.retriever = HybridRetriever(
@@ -343,7 +343,7 @@ class AlgoRAGApp:
                 
                 elif raw_input.lower() == "/stats":
                     from src.ingestion.indexer import AlgoIndexer
-                    indexer = AlgoIndexer(settings.cohere_api_key, settings.chroma_db_path)
+                    indexer = AlgoIndexer(settings.cohere_api_key, settings.faiss_db_path)
                     stats = indexer.get_stats()
                     console.print_json(data=stats)
                 

@@ -40,7 +40,7 @@ class AlgoIndexer:
                  collection_name: str = "algorithms"):
         
         self.cohere_api_key = cohere_api_key
-        self.chroma_path = chroma_path
+        self.faiss_path = chroma_path  # Reused argument name for compatibility
         self.collection_name = collection_name
         
         # LangChain Cohere Embeddings wrapper
@@ -51,83 +51,33 @@ class AlgoIndexer:
             model="embed-english-v3.0",
         )
         
-        # ChromaDB persistent client
-        self.chroma_client = chromadb.PersistentClient(
-            path=chroma_path,
-            settings=ChromaSettings(anonymized_telemetry=False)
-        )
+        from langchain_community.vectorstores import FAISS
+        import os
         
-        # LangChain Chroma wrapper (higher level)
-        self.vectorstore = Chroma(
-            client=self.chroma_client,
-            collection_name=collection_name,
-            embedding_function=self.embeddings,
-            collection_metadata={"hnsw:space": "cosine"},
-        )
+        self.vectorstore = None
+        if os.path.exists(os.path.join(self.faiss_path, "index.faiss")):
+            try:
+                self.vectorstore = FAISS.load_local(self.faiss_path, self.embeddings, allow_dangerous_deserialization=True)
+            except Exception as e:
+                logger.warning(f"Could not load existing FAISS index: {e}")
     
     def _generate_chunk_id(self, chunk: Document) -> str:
         """
         Generate deterministic unique IDs for chunks.
-        Prevents duplicate collisions across runs.
         """
-
-        content_hash = hashlib.md5(
-            chunk.page_content.encode("utf-8")
-        ).hexdigest()
-
-        key = (
-            f"{chunk.metadata.get('source', '')}_"
-            f"{chunk.metadata.get('function_name', '')}_"
-            f"{chunk.metadata.get('chunk_index', 0)}_"
-            f"{content_hash}"
-        )
-
-        return hashlib.md5(key.encode()).hexdigest()
-    
-    def get_existing_ids(self) -> set[str]:
-        """Get all IDs already in the vector store."""
-        try:
-            collection = self.chroma_client.get_collection(self.collection_name)
-            return set(collection.get()["ids"])
-        except Exception:
-            return set()
+        content_hash = hashlib.md5(chunk.page_content.encode('utf-8')).hexdigest()
+        return f"{chunk.metadata.get('source', 'unknown')}_{content_hash}"
     
     def index_chunks(self, chunks: list[Document], force_reindex: bool = False) -> int:
         """
         Embed and store chunks. Returns count of newly indexed chunks.
-        
-        CONCEPT: We process in batches to:
-        1. Respect API rate limits
-        2. Show meaningful progress  
-        3. Handle partial failures gracefully
         """
-        existing_ids = set() if force_reindex else self.get_existing_ids()
-        logger.info(f"Existing chunks in DB: {len(existing_ids)}")
-        
-        # Filter out already-indexed chunks
-        new_chunks = []
-        new_ids = []
-        
-        for chunk in chunks:
-            chunk_id = self._generate_chunk_id(chunk)
-            if chunk_id not in existing_ids:
-                new_chunks.append(chunk)
-                new_ids.append(chunk_id)
-        # Remove accidental duplicate IDs inside current run
-        unique_chunks = {}
+        from langchain_community.vectorstores import FAISS
+        import os
 
-        for chunk, chunk_id in zip(new_chunks, new_ids):
-            unique_chunks[chunk_id] = chunk
-
-        new_ids = list(unique_chunks.keys())
-        new_chunks = list(unique_chunks.values())
-            
+        new_chunks = chunks
         
-        if not new_chunks:
-            logger.info("All chunks already indexed. Nothing to do.")
-            return 0
-        
-        logger.info(f"Indexing {len(new_chunks)} new chunks...")
+        logger.info(f"Indexing {len(new_chunks)} chunks...")
         
         # Process in batches
         total_indexed = 0
@@ -137,14 +87,12 @@ class AlgoIndexer:
         for batch_idx, i in enumerate(range(0, len(new_chunks), batch_size)):
             print(f"Embedding batch {batch_idx + 1}/{total_batches} (chunk {i}/{len(new_chunks)})...")
             batch_chunks = new_chunks[i:i + batch_size]
-            batch_ids = new_ids[i:i + batch_size]
             
             try:
-                # LangChain's Chroma.add_documents handles embedding automatically
-                self.vectorstore.add_documents(
-                    documents=batch_chunks,
-                    ids=batch_ids
-                )
+                if self.vectorstore is None:
+                    self.vectorstore = FAISS.from_documents(batch_chunks, self.embeddings)
+                else:
+                    self.vectorstore.add_documents(documents=batch_chunks)
                 total_indexed += len(batch_chunks)
                 
                 # Rate limiting: Cohere trial = 100K tokens/min.
@@ -160,23 +108,26 @@ class AlgoIndexer:
                 continue
         
         logger.info(f"✅ Indexed {total_indexed} chunks successfully")
+        
+        if self.vectorstore:
+            import os
+            os.makedirs(self.faiss_path, exist_ok=True)
+            self.vectorstore.save_local(self.faiss_path)
+            
         return total_indexed
     
     def get_stats(self) -> dict:
         """Return statistics about the current index."""
         try:
-            collection = self.chroma_client.get_collection(self.collection_name)
-            count = collection.count()
-            
-            # Get unique categories
-            all_meta = collection.get(include=["metadatas"])["metadatas"]
-            categories = set(m.get("category", "unknown") for m in all_meta)
+            count = 0
+            if self.vectorstore and hasattr(self.vectorstore, 'index'):
+                count = self.vectorstore.index.ntotal
             
             return {
                 "total_chunks": count,
-                "categories": sorted(categories),
-                "num_categories": len(categories),
-                "db_path": self.chroma_path,
+                "categories": ["N/A"],
+                "num_categories": 0,
+                "db_path": self.faiss_path,
             }
         except Exception as e:
             return {"error": str(e)}
@@ -236,7 +187,7 @@ def run_full_indexing_pipeline(settings) -> "AlgoIndexer":
     print("\n[3/3] Embedding & indexing (this takes a few minutes)...")
     indexer = AlgoIndexer(
         cohere_api_key=settings.cohere_api_key,
-        chroma_path=settings.chroma_db_path,
+        chroma_path=settings.faiss_db_path,
     )
 
     new_count = indexer.index_chunks(chunks)

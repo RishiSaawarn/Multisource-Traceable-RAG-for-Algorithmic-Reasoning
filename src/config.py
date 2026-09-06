@@ -1,24 +1,10 @@
-# src/config.py
 """
 CONCEPT: Centralised config prevents hardcoded values scattered everywhere.
 Using Pydantic's BaseSettings auto-reads from .env files.
+"""
 import os
 # Disable ChromaDB's PostHog telemetry before ChromaDB is imported anywhere.
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
-
-# Completely neutralize posthog by injecting a fake module. This prevents
-# ChromaDB from importing the real posthog and launching background threads
-# that crash the Rust backend on Windows.
-import sys
-import types
-fake_posthog = types.ModuleType("posthog")
-fake_posthog.capture = lambda *args, **kwargs: None
-fake_posthog.Posthog = lambda *args, **kwargs: fake_posthog
-sys.modules["posthog"] = fake_posthog
-
-# Disable tqdm's background monitor thread which causes Rust access violations
-import tqdm
-tqdm.tqdm.monitor_interval = 0
 
 from pydantic_settings import BaseSettings
 from pathlib import Path
@@ -99,8 +85,8 @@ class Settings(BaseSettings):
     medium_confidence: float = 0.60
     low_confidence: float = 0.40
 
-    # Paths — kept for back-compat; pipeline uses ALGO_REPOS above
-    chroma_db_path: str = "./data/chroma_db"
+    # Paths — kept for back-compat; pipeline uses ALGO_REPOS    # Vector DB
+    faiss_db_path: str = "./data/faiss_index"
     cpp_repo_path:  str = "./data/raw/C-Plus-Plus"
     cpp_repo_url:   str = "https://github.com/TheAlgorithms/C-Plus-Plus"
 

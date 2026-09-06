@@ -11,7 +11,7 @@ langchain-cohere==0.4.4
 # =========================
 # Vector Database
 # =========================
-chromadb==1.0.12
+chromadb==0.4.24
 
 # =========================
 # Embeddings / Reranking

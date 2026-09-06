@@ -17,7 +17,7 @@ from typing import Optional
 import numpy as np
 from rank_bm25 import BM25Okapi
 from langchain_core.documents import Document
-from langchain_chroma import Chroma
+from langchain_community.vectorstores import FAISS
 import cohere
 import logging
 
@@ -45,7 +45,7 @@ class HybridRetriever:
     RRF_K = 60  # RRF constant — standard value, controls rank impact
     
     def __init__(self,
-                 vectorstore: Chroma,
+                 vectorstore: FAISS,
                  all_chunks: list[Document],
                  cohere_api_key: str,
                  k: int = 8,
