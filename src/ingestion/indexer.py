@@ -133,7 +133,9 @@ class AlgoIndexer:
         total_indexed = 0
         batch_size = self.COHERE_BATCH_SIZE
         
-        for i in tqdm(range(0, len(new_chunks), batch_size), desc="Embedding batches"):
+        total_batches = (len(new_chunks) + batch_size - 1) // batch_size
+        for batch_idx, i in enumerate(range(0, len(new_chunks), batch_size)):
+            print(f"Embedding batch {batch_idx + 1}/{total_batches} (chunk {i}/{len(new_chunks)})...")
             batch_chunks = new_chunks[i:i + batch_size]
             batch_ids = new_ids[i:i + batch_size]
             
@@ -212,16 +214,16 @@ def run_full_indexing_pipeline(settings) -> "AlgoIndexer":
     from src.ingestion.loader import load_all_repositories
     from src.ingestion.chunker import CppAwareChunker, add_context_header
 
-    print("\n🚀 Starting AlgoRAG Indexing Pipeline")
+    print("\n[>>] Starting AlgoRAG Indexing Pipeline")
     print("=" * 50)
 
     # Step 1: Clone/update + load all repos
-    print(f"\n📥 Step 1/3: Cloning & loading {len(ALGO_REPOS)} repo(s)...")
+    print(f"\n[1/3] Cloning & loading {len(ALGO_REPOS)} repo(s)...")
     docs = load_all_repositories(ALGO_REPOS)
     print(f"   Total documents loaded: {len(docs)}")
 
     # Step 2: Chunk
-    print("\n✂️  Step 2/3: Chunking documents...")
+    print("\n[2/3] Chunking documents...")
     chunker = CppAwareChunker(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap
@@ -231,7 +233,7 @@ def run_full_indexing_pipeline(settings) -> "AlgoIndexer":
     print(f"   Created {len(chunks)} chunks with context headers")
 
     # Step 3: Embed & Index
-    print("\n🔢 Step 3/3: Embedding & indexing (this takes a few minutes)...")
+    print("\n[3/3] Embedding & indexing (this takes a few minutes)...")
     indexer = AlgoIndexer(
         cohere_api_key=settings.cohere_api_key,
         chroma_path=settings.chroma_db_path,
@@ -240,7 +242,7 @@ def run_full_indexing_pipeline(settings) -> "AlgoIndexer":
     new_count = indexer.index_chunks(chunks)
 
     stats = indexer.get_stats()
-    print(f"\n✅ Indexing Complete!")
+    print("\n[OK] Indexing Complete!")
     print(f"   New chunks indexed : {new_count}")
     print(f"   Total in DB        : {stats['total_chunks']}")
     print(f"   Categories         : {', '.join(stats['categories'][:8])}...")
@@ -254,7 +256,7 @@ if __name__ == "__main__":
     indexer = run_full_indexing_pipeline(settings)
     
     # Quick test query
-    print("\n🔍 Test query: 'quicksort algorithm'")
+    print("\n[?] Test query: 'quicksort algorithm'")
     results = indexer.similarity_search_with_score("quicksort algorithm", k=3)
     for doc, score in results:
         print(f"  Score: {score:.4f} | {doc.metadata['source']} | {doc.metadata.get('function_name','')}")

@@ -2,12 +2,23 @@
 """
 CONCEPT: Centralised config prevents hardcoded values scattered everywhere.
 Using Pydantic's BaseSettings auto-reads from .env files.
-"""
 import os
 # Disable ChromaDB's PostHog telemetry before ChromaDB is imported anywhere.
-# Cannot go in .env — Pydantic Settings uses extra="forbid" and rejects
-# unknown keys. Setting via os.environ bypasses Pydantic entirely.
-os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+
+# Completely neutralize posthog by injecting a fake module. This prevents
+# ChromaDB from importing the real posthog and launching background threads
+# that crash the Rust backend on Windows.
+import sys
+import types
+fake_posthog = types.ModuleType("posthog")
+fake_posthog.capture = lambda *args, **kwargs: None
+fake_posthog.Posthog = lambda *args, **kwargs: fake_posthog
+sys.modules["posthog"] = fake_posthog
+
+# Disable tqdm's background monitor thread which causes Rust access violations
+import tqdm
+tqdm.tqdm.monitor_interval = 0
 
 from pydantic_settings import BaseSettings
 from pathlib import Path
@@ -56,17 +67,7 @@ ALGO_REPOS = [
         "url":      "https://github.com/keon/algorithms",
         "path":     "./data/raw/keon-algorithms",
         "language": "python",
-    },
-    {
-        "url":      "https://github.com/williamfiset/Algorithms",
-        "path":     "./data/raw/williamfiset-algorithms",
-        "language": "java",
-    },
-    {
-        "url":      "https://github.com/trekhleb/javascript-algorithms",
-        "path":     "./data/raw/trekhleb-js-algorithms",
-        "language": "markdown",   # index the .md explanation docs, not the JS code
-    },
+    }
 ]
 
 

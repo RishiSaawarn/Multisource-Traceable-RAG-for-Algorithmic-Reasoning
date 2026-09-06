@@ -26,19 +26,57 @@ logger = logging.getLogger(__name__)
 # Repo management
 # ---------------------------------------------------------------------------
 
-def clone_or_update_repo(repo_url: str, local_path: str) -> str:
-    """Clone if absent, pull if present. Returns local_path."""
+def clone_or_update_repo(repo_url: str, local_path: str, max_retries: int = 3) -> str:
+    """Clone if absent, pull if present. Returns local_path.
+    
+    Retries up to max_retries times with exponential backoff.
+    Falls back to HTTP/1.1 on retry to avoid curl-92 HTTP/2 stream errors.
+    """
+    import time
     path = Path(local_path)
     if path.exists() and (path / ".git").exists():
         logger.info(f"Repo exists at {local_path}, pulling latest...")
-        git.Repo(local_path).remotes.origin.pull()
-        logger.info("Pull complete.")
-    else:
-        logger.info(f"Cloning {repo_url} → {local_path}...")
-        path.mkdir(parents=True, exist_ok=True)
-        git.Repo.clone_from(repo_url, local_path, depth=1)
-        logger.info("Clone complete.")
-    return local_path
+        try:
+            git.Repo(local_path).remotes.origin.pull()
+            logger.info("Pull complete.")
+        except Exception as e:
+            logger.warning(f"Pull failed (non-fatal): {e}")
+        return local_path
+
+    logger.info(f"Cloning {repo_url} -> {local_path}...")
+    path.mkdir(parents=True, exist_ok=True)
+
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Force HTTP/1.1 on retries to avoid HTTP/2 stream cancellation (curl-92)
+            env = {"GIT_CONFIG_COUNT": "1",
+                   "GIT_CONFIG_KEY_0": "http.version",
+                   "GIT_CONFIG_VALUE_0": "HTTP/1.1"} if attempt > 1 else {}
+            git.Repo.clone_from(repo_url, local_path, depth=1, env=env or None)
+            logger.info("Clone complete.")
+            return local_path
+        except git.exc.GitCommandError as e:
+            last_error = e
+            if attempt < max_retries:
+                wait = 5 * attempt
+                logger.warning(
+                    f"Clone attempt {attempt}/{max_retries} failed: {e.stderr.strip()!r}. "
+                    f"Retrying in {wait}s (HTTP/1.1 on next attempt)..."
+                )
+                print(f"     [!] Clone failed (attempt {attempt}/{max_retries}), retrying in {wait}s...")
+                time.sleep(wait)
+                # Clean up partial clone before retry
+                import shutil
+                if path.exists():
+                    shutil.rmtree(path)
+                    path.mkdir(parents=True, exist_ok=True)
+            else:
+                logger.error(f"Clone failed after {max_retries} attempts: {e}")
+                raise
+
+    raise last_error  # unreachable but satisfies type checker
+
 
 
 # ---------------------------------------------------------------------------

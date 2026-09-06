@@ -22,6 +22,11 @@ import sys
 import argparse
 from pathlib import Path
 
+# Force UTF-8 output on Windows terminals (Anaconda defaults to cp1252)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # Make sure `src/` is on the path when run as a script
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -50,12 +55,17 @@ def main():
             print(f"⚠️  --force: deleting existing index at {chroma_path}")
             shutil.rmtree(chroma_path)
 
-    indexer = run_full_indexing_pipeline(settings)
-
-    print("\n🎉 Ingestion complete. Run the app with:")
-    print("   python -m src.ui.app\n")
-
-    return indexer
+    try:
+        indexer = run_full_indexing_pipeline(settings)
+        print("\n🎉 Ingestion complete. Run the app with:")
+        print("   python -m src.ui.app\n")
+        return indexer
+    except Exception as e:
+        import traceback
+        print(f"\n❌ FATAL ERROR: {type(e).__name__}: {e}")
+        print("Traceback:")
+        print(traceback.format_exc())
+        sys.exit(1)
 
 
 if __name__ == "__main__":
